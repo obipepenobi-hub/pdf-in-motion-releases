@@ -1,0 +1,38 @@
+# Workflow of the public releases repository (copy to
+# .github/workflows/publish-release.yml there). A push of a branch
+# "upload/v<version>" with release/ (setup in parts below GitHub's file size
+# limit, SHA256SUMS.txt, notes.md, VERSION) becomes the GitHub release
+# v<version>; installed copies of PDF in motion update from it. The upload
+# branch is deleted afterwards so the repository does not grow.
+name: Release veröffentlichen
+on:
+  push:
+    branches: ["upload/**"]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup zusammensetzen und prüfen
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < release/VERSION)
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Ungültige Version: $VERSION"; exit 1; }
+          [ "$GITHUB_REF_NAME" = "upload/v$VERSION" ] || { echo "Zweig passt nicht zu $VERSION"; exit 1; }
+          NAME="PDF-in-motion-$VERSION-Setup.exe"
+          cat release/"$NAME".part-* > "$NAME"
+          grep -q "  $NAME\$" release/SHA256SUMS.txt
+          sha256sum -c release/SHA256SUMS.txt
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" "$NAME" release/SHA256SUMS.txt \
+            --title "PDF in motion $VERSION" --notes-file release/notes.md --latest
+      - name: Upload-Zweig löschen
+        if: always()
+        run: git push origin --delete "$GITHUB_REF_NAME"
